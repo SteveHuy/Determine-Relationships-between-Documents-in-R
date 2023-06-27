@@ -1,0 +1,283 @@
+---
+title: "FIT3152 Assignment 3"
+author: "Steve Huynh"
+date: "2023-05-23"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup}
+rm(list = ls())
+library(slam) # for matrices and arrays
+library(tm)
+library(SnowballC) # for stemming
+library(proxy)
+library(igraph)
+```
+
+## 1. Collect a Set of (Machine Readable Text) Documents from Areas of Interest
+
+Random
+
+<https://www.abc.net.au/news/2021-04-21/stolen-big-bird-costume-returned-to-adelaide-circus/100083210>
+
+Hecs Increase
+
+<https://www.abc.net.au/news/2023-05-22/hecs-indexation-reminder-june-1-indexation/102370610>
+
+<https://www.afr.com/wealth/personal-finance/millions-of-hecs-debts-are-about-to-soar-so-should-you-pay-yours-off-20230517-p5d96p>
+
+<https://www.theguardian.com/news/datablog/ng-interactive/2023/may/03/millions-of-australians-face-higher-help-and-hecs-debts-see-how-inflation-will-change-your-repayments>\
+
+Tech Layoffs
+
+<https://techcrunch.com/2023/05/18/tech-industry-layoffs/>
+
+<https://interestingengineering.com/culture/causes-and-impacts-of-tech-layoffs-how-to-deal>
+
+<https://www.computerworld.com/article/3685936/tech-layoffs-in-2023-a-timeline.html>
+
+AI Taking Over Software Jobs
+
+<https://seattlewebsitedesign.medium.com/will-ai-take-developers-jobs-24be45aa6c3>
+
+<https://www.fdmgroup.com/blog/will-ai-take-over-the-role-of-a-software-developer/>
+
+<https://www.upskilled.edu.au/skillstalk/will-ai-take-over-your-programming-job>
+
+Mosquito
+
+<https://www.9news.com.au/world/what-mosquitoes-are-most-attracted-to-in-human-body-odor-revealed/1010b5ef-9f9f-4939-b19d-abe0c3a9c4fe>
+
+<https://www.theguardian.com/science/2023/may/07/mosquitoes-repellant-bite-summer-science-medical-research>
+
+<https://a-z-animals.com/blog/mosquito-bites-what-they-look-like-how-to-treat/>
+
+Homicide
+
+<https://www.9news.com.au/national/manhunt-underway-for-teen-linked-to-stabbing-death-of-16-year-old-pa-sawm-lyhym/71edd228-942f-4296-9cc4-6b0924152095>
+
+<https://www.abc.net.au/news/2023-05-24/boy-arrested-after-allegedly-firing-gun-at-perth-school/102387452>
+
+## 2. Create the Corpus and DTM
+
+```{r}
+#Get file path to folder "test" where the documents are located
+
+cname = file.path("CorpusAbstracts", "txt")
+
+docs = Corpus(DirSource((cname)))
+
+#Tokenisation
+docs <- tm_map(docs, removeNumbers)
+docs <- tm_map(docs, removePunctuation)
+docs <- tm_map(docs, content_transformer(tolower))
+
+#Filter words
+# Remove stop words and white space
+docs <- tm_map(docs, removeWords, stopwords("english"))
+docs <- tm_map(docs, stripWhitespace)
+
+# Stem
+docs <- tm_map(docs, stemDocument, language = "english")
+
+
+
+#Create document term matrix
+dtm <- DocumentTermMatrix(docs)
+
+#remove sprase terms
+dtm <- removeSparseTerms(dtm, 0.7) 
+
+dtm = as.data.frame(as.matrix(dtm))
+write.csv(dtm, "dtm.csv")
+
+dtm
+```
+
+## 4. Create Hierarchical Clustering
+
+```{r}
+dist_matrix <- dist(dtm, method = "cosine")
+
+# Perform hierarchical clustering
+hclust_result <- hclust(dist_matrix, method = "complete")
+
+# Plot the dendrogram
+plot(hclust_result, hang = -1)
+```
+
+We can see that Mosquito, AITakingOverSoftwareJobs, TechLayOffs and HecsDebtIncrease2 and 3 are appropriately grouped. Therefore, 4 out of the 15 documents was improperly clustered giving the cosine clustering an clustering accuracy of 0.73% or 11/15.
+
+## 5. Create a Single-Mode Network showing the Connections between Documents Based on the Number of Shared Terms
+
+```{r}
+dtmsx = as.matrix(dtm)
+
+#convert to binary matrix
+dtmsx = as.matrix((dtmsx > 0) + 0)
+
+#multiply binary matrix by its tranpose
+ByAbsMatrix = dtmsx %*% t(dtmsx)
+
+#make leading diagonal zero
+diag(ByAbsMatrix) = 0
+```
+
+```{r warning=FALSE}
+
+#make the graph
+ByAbs = graph_from_adjacency_matrix(ByAbsMatrix, mode = "undirected", weighted = TRUE)
+
+
+#set vertex size based on scale of eigencentrality
+
+eigen_centrality = eigen_centrality(ByAbs)$vector
+
+vertex_sizes = 10 + (eigen_centrality - min(eigen_centrality)) / (max(eigen_centrality) - min(eigen_centrality)) * 20
+
+# Perform leading edge betweenness clustering
+clusters = cluster_edge_betweenness(ByAbs)
+
+
+# Set the threshold for changing the edge color
+threshold = 8
+
+# Create a vector of edge colors based on the threshold
+edge_colours = ifelse(E(ByAbs)$weight > threshold, "red", "green")
+
+#plot
+plot(ByAbs, edge.width = E(ByAbs)$weight * 0.5 , edge.color = edge_colours, vertex.size = vertex_sizes, vertex.color = membership(clusters))
+```
+
+### What does this graph tell you about the relationship between the documents?
+
+There is a clear relationship with the careers/money related documents such as the AITakingOverSoftwareJobs, TechLayOffs and HecsDebtIncrease. However, from each catergory only 2 documents out of the 3 are part of this strong relationship. This is shown via the red line which indicates they share over 8 tokens (words) together.
+
+### Are there clear groups in the data?
+
+There is a clear group shown by the different colour of the vertices. Blue, Green and Orange. Orange contains the community which revolves around money/career talk. Green is a single vertex on its own as removing this one vertex will not change the betweenness of any other vertex. And the Blue vertices is contains the community with no real topic. This grouping is done via the edge betweenness algorithm
+
+### What are the most important (central) documents in the network?
+
+The most important document as shown via the EigenCentrality algorithm is AITakingOverSoftwareJobs3. This is followed by the other 2 documents relating to AITakingOverSoftwareJobs and HecsDebtIncrease documents. However, it is apparent that the articles which are less about careers and money such as the Homicide and the StolenBigBirdOutfit are less central.
+
+## 6. Create a Single-Mode Network showing the Connections between Tokens
+
+```{r}
+dtmsx = as.matrix(dtm)
+
+#convert to binary matrix
+dtmsx = as.matrix((dtmsx > 0) + 0)
+
+#multiply binary matrix by its tranpose
+ByTokenMatrix = t(dtmsx) %*% dtmsx
+
+#make leading diagonal zero
+diag(ByTokenMatrix) = 0
+```
+
+```{r warning=FALSE}
+
+#make the graph
+ByTokenAbs = graph_from_adjacency_matrix(ByTokenMatrix, mode = "undirected", weighted = TRUE)
+
+
+#set vertex size based on scale of eigencentrality
+
+eigen_centrality = eigen_centrality(ByTokenAbs)$vector
+
+vertex_sizes = 10 + (eigen_centrality - min(eigen_centrality)) / (max(eigen_centrality) - min(eigen_centrality)) * 20
+
+# Perform leading edge betweenness clustering
+clusters = cluster_edge_betweenness(ByAbs)
+
+# Set the threshold for changing the edge color
+threshold = 5
+
+# Create a vector of edge colors based on the threshold
+edge_colours = ifelse(E(ByTokenAbs)$weight > threshold, "red", "green")
+
+#plot
+
+plot(ByTokenAbs, edge.width = E(ByTokenAbs)$weight * 0.5 , edge.color = edge_colours, vertex.size = vertex_sizes, vertex.color = membership(clusters))
+```
+
+### What does this graph tell you about the relationship between the documents?
+
+There are clear relationships between "can", "tech", "job", "human", "will" and "like". This is shown by the red line between those vertices. This shows that they appear in at least 5 documents together.
+
+### Are there clear groups in the data?
+
+Groups are separately by the edge betweenness algorithm. There are three different groups present within this network this shown by the green, yellow and blue.
+
+### What are the most important (central) tokens in the network?
+
+We can see that the most central vertex is the token "can" via the EigenCentrality Algorithm. This is followed by "will" and then "increas". Whereas, the least important tokens are "last", "said" and "two."
+
+## 7. Create a bipartite (two-mode) network of your corpus
+
+```{r}
+dtmsa = as.data.frame(dtm)
+dtmsa$ABS = rownames(dtmsa)
+dtmsb = data.frame()
+for(i in 1:nrow(dtmsa)){
+  for(j in 1:(ncol(dtmsa) - 1)){
+    touse = cbind(dtmsa[i,j], dtmsa[i,ncol(dtmsa)], colnames(dtmsa[j]))
+    dtmsb = rbind(dtmsb, touse) 
+  }
+}
+
+colnames(dtmsb) = c("weights", "abs", "token")
+
+dtmsc = dtmsb[dtmsb$weight != 0,]
+
+dtmsc = dtmsc[dtmsc$weight != 1,]
+
+dtmsc = dtmsc[dtmsc$weight != 2,]
+
+
+dtmsc = dtmsc[, c(2,3,1)]
+```
+
+```{r}
+g = graph.data.frame(dtmsc, directed = FALSE)
+
+
+# make it look nice
+V(g)$type <- bipartite_mapping(g)$type
+V(g)$shape <- ifelse(V(g)$type, "circle", "square")
+
+
+
+# cluster based on edge_betweenness
+clusters = cluster_label_prop(g)
+
+
+plot(g, vertex.color = membership(clusters))
+```
+
+### What does this graph tell you about the relationship between words and documents?
+
+I have made the graph so that only when that document uses the token more than or equal to 3 times it will appear as an edge. Therefore, Mosquito1 and 2 did not make it into the graph as they did use the same token more than 2. Therefore, it is obvious when the document has a relationship with a word. This is seen with all of the AITakingOverSoftwareJobs having an edge with the word develop. Therefore, they all have a strong relationship with develop. As we can see HecsDebtIncrease1 is the only document with a relationship with student.
+
+### Are there clear groups?
+
+The clustering of the groups is done via the label propogation algorithm. As we can see there are many different groups and they are clear. This bipartite network gives similar results to the cosine clustering provided earlier. As we can see AITakingOverSoftwareJobs and TechLayOffs is grouped appropriately.
+
+## Briefly summarise your results identifying important documents, tokens and groups within the corpus.
+
+We can see from our initial network showing the connections between documents showed that the document which had the highest Eigencentrality was AITakingOverSoftwareJobs3 therefore, it is the most important document. This is supported by our third network showing connections between words and documents and AITakingOverSoftwareJobs3 is connected to a significant amount of words compared to the other documents.
+
+The most important token within the documents is Can again shown by the Eigencentrality.
+
+And groups can be identified relatively easily with the Cosine Cluster being 73% accurate. These groupings are reflected within the bipartite network as well as we can easily see AITakingOverSoftwareJobs and TechLayOffs being in its own separate group.
+
+## Comment on the relative effectiveness of clustering over social network analysis to identify important groups and relationships in the data.
+
+In the 3 examples given clustering has shown us clear groups within the data. Within clustering between the documents we can easily see which documents share similar words. Therefore, informing the individual that these documents may have something in common. Otherwise, without the clustering it is difficult for the individual to determine any relationship between the documents. Again with the example of clustering of tokens we can see which words often appear with each other which would otherwise be difficult to interpret.
+
+With the example of documents and tokens together we can easily identify important groups in the data based on what words they share together. As the individual can easily tell that all of the TechLayOff documents are in a group together and all share the word tech.
+
+Therefore, it is important that we undergo clustering within these networks to help the individual to interpret which vertices are in relationship with others.
